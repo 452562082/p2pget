@@ -1,0 +1,6 @@
+# Compiled binary
+/p2pget
+
+# Test artifacts
+*.test
+*.out
