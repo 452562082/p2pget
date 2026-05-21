@@ -193,3 +193,7 @@ p2pget/
 
 - **DHT 爬虫**：首次启动需要等路由表建好，本机内网可能效果差，建议公网或 NAT-friendly 网络。
 - **法律声明**：本工具是协议实现，类似 qBittorrent / Transmission。下载内容的合法性由使用者自行负责。
+
+## 许可证
+
+[MIT](LICENSE)
