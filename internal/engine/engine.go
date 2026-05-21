@@ -373,11 +373,19 @@ func (e *Engine) restore() {
 	}
 }
 
-// WaitInfo blocks until torrent metadata is available or ctx is done.
+// WaitInfo blocks until torrent metadata is available or ctx is done. It also
+// returns if the torrent is dropped first — e.g. when awaitMetadata gives up
+// after the metadata timeout — since GotInfo() never fires for a dropped
+// torrent and would otherwise hang the caller until ctx expires.
 func (e *Engine) WaitInfo(ctx context.Context, d *Download) error {
 	select {
 	case <-d.t.GotInfo():
 		return nil
+	case <-d.t.Closed():
+		if err := d.Err(); err != nil {
+			return err
+		}
+		return errors.New("torrent closed before metadata arrived")
 	case <-ctx.Done():
 		return ctx.Err()
 	}
