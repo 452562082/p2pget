@@ -231,6 +231,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
+			// On a search result, add it paused so files can be picked
+			// before any download starts.
+			if m.active == tabSearch && !m.input.Focused() {
+				if it, ok := m.results.SelectedItem().(resultItem); ok {
+					return m, m.addDownload(it.r, true)
+				}
+			}
 		case "D":
 			if m.active == tabDownloads && !m.input.Focused() {
 				if it, ok := m.dls.SelectedItem().(downloadItem); ok {
@@ -256,7 +263,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.active == tabSearch && !m.input.Focused() {
 				if it, ok := m.results.SelectedItem().(resultItem); ok {
-					return m, m.addDownload(it.r)
+					return m, m.addDownload(it.r, false)
 				}
 			}
 			if m.active == tabDownloads {
@@ -311,9 +318,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tickRefresh()
 
 	case downloadAddedMsg:
-		if msg.err != nil {
+		switch {
+		case msg.err != nil:
 			m.status = "添加失败: " + msg.err.Error()
-		} else {
+		case msg.paused:
+			m.status = "已暂停加入: " + msg.name + "（下载列表里 Enter 选文件，选好按 p 开始）"
+			m.refreshDownloads()
+		default:
 			m.status = "已加入下载: " + msg.name
 			m.refreshDownloads()
 		}
@@ -334,11 +345,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 type downloadAddedMsg struct {
-	name string
-	err  error
+	name   string
+	paused bool
+	err    error
 }
 
-func (m *Model) addDownload(r search.Result) tea.Cmd {
+// addDownload adds r to the engine. When paused is true the download is held
+// before any piece is fetched, so the user can pick files first.
+func (m *Model) addDownload(r search.Result, paused bool) tea.Cmd {
 	return func() tea.Msg {
 		var (
 			d   *engine.Download
@@ -355,11 +369,16 @@ func (m *Model) addDownload(r search.Result) tea.Cmd {
 		if err != nil {
 			return downloadAddedMsg{err: err}
 		}
+		if paused {
+			// Set before metadata can arrive (network fetch takes much
+			// longer than this call), so no unwanted piece is requested.
+			d.SetPaused(true)
+		}
 		name := r.Title
 		if name == "" {
 			name = d.InfoHash()
 		}
-		return downloadAddedMsg{name: name}
+		return downloadAddedMsg{name: name, paused: paused}
 	}
 }
 
@@ -493,7 +512,8 @@ func helpText() string {
 		"  /                 聚焦搜索框",
 		"  Esc               取消输入焦点",
 		"  Enter (搜索框)    执行搜索",
-		"  Enter (结果列表)  添加为下载任务",
+		"  Enter (结果列表)  加入并立即下载",
+		"  p     (结果列表)  暂停加入（先选文件，避免下到不想要的文件）",
 		"  Enter (下载列表)  选择要下载的文件",
 		"  p     (下载列表)  暂停 / 恢复任务",
 		"  d     (下载列表)  移除任务（保留磁盘文件）",
