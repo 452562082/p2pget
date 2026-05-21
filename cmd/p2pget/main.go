@@ -72,10 +72,9 @@ func usage() {
   -max-conns N    每个种子最大连接数 (默认库默认值)
   -jackett-url U  Jackett 地址 (默认 http://localhost:9117)
   -jackett-key K  Jackett API key，设置后启用 jackett 搜索源
-  -flaresolverr U FlareSolverr 地址，设置后用于绕过 Cloudflare (救活 1337x)
 
-环境变量 P2PGET_JACKETT_URL / P2PGET_JACKETT_KEY / P2PGET_FLARESOLVERR
-可作为上述三个选项的默认值，省去每次输入。
+环境变量 P2PGET_JACKETT_URL / P2PGET_JACKETT_KEY
+可作为上述两个选项的默认值，省去每次输入。
 `)
 }
 
@@ -90,9 +89,8 @@ type commonFlags struct {
 	rateDown     int
 	rateUp       int
 	maxConns     int
-	jackettURL   string
-	jackettKey   string
-	flareSolverr string
+	jackettURL string
+	jackettKey string
 }
 
 // envOr returns the environment variable value for key, or def if unset.
@@ -116,7 +114,6 @@ func registerCommon(fs *flag.FlagSet) *commonFlags {
 	fs.IntVar(&c.maxConns, "max-conns", 0, "每个种子最大连接数 (0 表示库默认)")
 	fs.StringVar(&c.jackettURL, "jackett-url", envOr("P2PGET_JACKETT_URL", "http://localhost:9117"), "Jackett 地址")
 	fs.StringVar(&c.jackettKey, "jackett-key", os.Getenv("P2PGET_JACKETT_KEY"), "Jackett API key (设置后启用 jackett 源)")
-	fs.StringVar(&c.flareSolverr, "flaresolverr", os.Getenv("P2PGET_FLARESOLVERR"), "FlareSolverr 地址 (设置后用于绕过 Cloudflare)")
 	return c
 }
 
@@ -158,17 +155,10 @@ func openStore(c *commonFlags) (*store.Store, error) {
 }
 
 func newAggregator(st *store.Store, c *commonFlags) *search.Aggregator {
-	x1337 := search.NewX1337()
-	if c.flareSolverr != "" {
-		// Routing through a headless browser is slow; trim detail-page
-		// fetches so 1337x stays within a sane time budget.
-		x1337.Solver = search.NewFlareSolverr(c.flareSolverr)
-		x1337.MaxDetail = 5
-	}
 	idx := []search.Indexer{
 		search.NewPirateBay(),
 		search.NewNyaa(),
-		x1337,
+		search.NewTorrentsCSV(),
 	}
 	if c.jackettKey != "" {
 		idx = append(idx, search.NewJackett(c.jackettURL, c.jackettKey))
@@ -177,13 +167,10 @@ func newAggregator(st *store.Store, c *commonFlags) *search.Aggregator {
 		idx = append(idx, &dht.StoreIndexer{Store: st})
 	}
 	agg := search.New(idx...)
-	// Cloudflare-solving and Jackett fan-out are far slower than the JSON
-	// APIs; widen the budget so they aren't cut off. Streaming search keeps
+	// Jackett fans out to many trackers and is far slower than the JSON
+	// APIs; widen the budget so it isn't cut off. Streaming search keeps
 	// the fast sources appearing immediately regardless.
-	switch {
-	case c.flareSolverr != "":
-		agg.Timeout = 90 * time.Second
-	case c.jackettKey != "":
+	if c.jackettKey != "" {
 		agg.Timeout = 30 * time.Second
 	}
 	return agg
@@ -237,8 +224,8 @@ func runSearch(args []string) {
 	}
 	agg := newAggregator(st, c)
 
-	// The aggregator applies its own timeout (longer when Jackett or
-	// FlareSolverr is enabled), so no extra deadline is needed here.
+	// The aggregator applies its own timeout (longer when Jackett is
+	// enabled), so no extra deadline is needed here.
 	results, errs := agg.Search(context.Background(), query)
 	for name, err := range errs {
 		fmt.Fprintf(os.Stderr, "[%s] %v\n", name, err)

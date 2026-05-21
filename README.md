@@ -6,8 +6,8 @@
 
 - **聚合搜索**：并发查询多个数据源，去重排序，结果流式渐进显示
   - `piratebay` — apibay.org JSON API
-  - `nyaa` — nyaa.si RSS
-  - `1337x` — HTML 抓取（默认常被 Cloudflare 拦；配 FlareSolverr 后可用）
+  - `nyaa` — nyaa.si RSS（动漫为主）
+  - `torrents-csv` — torrents-csv.com 开放 JSON API，综合内容
   - `jackett` — 接入本地 Jackett，一次覆盖其中配置的所有公开/私有 tracker（需配置 API key）
   - `dht-index` — 本地 SQLite，存 DHT 爬虫收集到的种子
 - **BitTorrent 引擎**：基于 [anacrolix/torrent](https://github.com/anacrolix/torrent)，支持 magnet 链接、`.torrent` 文件/URL、纯 info-hash
@@ -93,10 +93,9 @@ GOPROXY=https://proxy.golang.org,direct go mod tidy
 | `-max-conns` | 0（库默认） | 每个种子的最大连接数 |
 | `-jackett-url` | `http://localhost:9117` | Jackett 地址 |
 | `-jackett-key` | 空 | Jackett API key，设置后启用 `jackett` 源 |
-| `-flaresolverr` | 空 | FlareSolverr 地址，设置后用于绕过 Cloudflare |
 
-`-jackett-url` / `-jackett-key` / `-flaresolverr` 也可分别用环境变量
-`P2PGET_JACKETT_URL` / `P2PGET_JACKETT_KEY` / `P2PGET_FLARESOLVERR` 设置默认值。
+`-jackett-url` / `-jackett-key` 也可用环境变量
+`P2PGET_JACKETT_URL` / `P2PGET_JACKETT_KEY` 设置默认值。
 
 ## 搜索源
 
@@ -112,10 +111,9 @@ apibay.org 的公开 JSON API，综合资源（影视、剧集、软件等）。
 nyaa.si 的 RSS，**专注动漫与亚洲内容**。搜非动漫（如欧美电影）时它通常返回空，
 属正常现象。
 
-### 1337x（需 FlareSolverr）
+### torrents-csv（默认开，无需配置）
 
-1337x.to 的 HTML 抓取。默认会被 Cloudflare 拦截（返回 403），需配置下方的
-FlareSolverr 才能用。
+torrents-csv.com 的开放社区种子索引，公开 JSON API，综合内容。开箱即用。
 
 ### jackett（需配置，推荐——一次接入数百站点）
 
@@ -139,21 +137,10 @@ FlareSolverr 才能用。
 
 注意：本工具靠 magnet / DHT 下载，只能用 Jackett 结果中带 magnet 或 info-hash 的条目。
 
-### FlareSolverr（让 1337x 可用）
-
-[FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) 是用无头浏览器解
-Cloudflare 挑战的代理服务，配置后 `1337x` 源即可正常抓取。
-
-1. **运行 FlareSolverr**：
-   `docker run -d --name flaresolverr -p 8191:8191 ghcr.io/flaresolverr/flaresolverr:latest`
-2. **配置给 p2pget**：
-   ```bash
-   export P2PGET_FLARESOLVERR=http://localhost:8191
-   ./p2pget
-   ```
-   也可用 `-flaresolverr` 命令行参数。
-
-代价：每次请求要启浏览器，较慢；启用后搜索整体超时会放宽到 90s（快的源仍先出结果）。
+想要 1337x、Rutracker 这类被 Cloudflare 拦截或需登录的站点——在 Jackett 里把它们
+加为 indexer 即可。被 Cloudflare 保护的站点，在 Jackett 设置页填上 FlareSolverr
+地址（[FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) 用无头浏览器解
+Cloudflare 挑战），由 Jackett 统一处理，p2pget 这边无需关心。
 
 ### dht-index（需先跑爬虫）
 
@@ -180,7 +167,7 @@ p2pget/
 ├── cmd/p2pget/main.go          # 入口 + 子命令
 ├── internal/
 │   ├── engine/                  # anacrolix/torrent 封装
-│   ├── search/                  # 搜索聚合（piratebay/nyaa/1337x/jackett）+ FlareSolverr
+│   ├── search/                  # 搜索聚合（piratebay/nyaa/torrents-csv/jackett）
 │   ├── dht/                     # DHT 爬虫 + StoreIndexer
 │   ├── store/                   # SQLite (modernc.org/sqlite, 纯 Go)
 │   └── tui/                     # bubbletea TUI
@@ -189,7 +176,6 @@ p2pget/
 
 ## 已知限制
 
-- **1337x.to** 默认会被 Cloudflare 拦（返回 403）；配置 FlareSolverr 后可正常使用。未配置时它作为 best-effort 数据源，单源失败不影响整体。
 - **DHT 爬虫**：首次启动需要等路由表建好，本机内网可能效果差，建议公网或 NAT-friendly 网络。
 - **法律声明**：本工具是协议实现，类似 qBittorrent / Transmission。下载内容的合法性由使用者自行负责。
 
