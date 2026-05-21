@@ -61,7 +61,7 @@ func (a *Aggregator) Search(ctx context.Context, query string) ([]Result, map[st
 				errs[idx.Name()] = err
 				return
 			}
-			out = append(out, res...)
+			out = append(out, filterByQuery(res, query)...)
 		}(idx)
 	}
 	wg.Wait()
@@ -95,7 +95,7 @@ func (a *Aggregator) SearchStream(ctx context.Context, query string) <-chan Inde
 		go func(idx Indexer) {
 			defer wg.Done()
 			res, err := idx.Search(ctx, query)
-			ch <- IndexerResult{Name: idx.Name(), Results: res, Err: err}
+			ch <- IndexerResult{Name: idx.Name(), Results: filterByQuery(res, query), Err: err}
 		}(idx)
 	}
 	go func() {
@@ -104,6 +104,33 @@ func (a *Aggregator) SearchStream(ctx context.Context, query string) <-chan Inde
 		close(ch)
 	}()
 	return ch
+}
+
+// filterByQuery drops results whose title doesn't contain every
+// whitespace-separated token of the query (case-insensitive). Some sources
+// (notably apibay) return a generic popular list when a query matches
+// nothing — e.g. a Chinese term against an English-only index — and this
+// removes that irrelevant noise.
+func filterByQuery(in []Result, query string) []Result {
+	tokens := strings.Fields(strings.ToLower(query))
+	if len(tokens) == 0 {
+		return in
+	}
+	out := make([]Result, 0, len(in))
+	for _, r := range in {
+		title := strings.ToLower(r.Title)
+		keep := true
+		for _, tok := range tokens {
+			if !strings.Contains(title, tok) {
+				keep = false
+				break
+			}
+		}
+		if keep {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // DedupAndRank merges duplicate results by info-hash and sorts by seeders.

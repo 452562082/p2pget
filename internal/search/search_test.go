@@ -33,6 +33,38 @@ func TestDedupAndRankSortsBySeeders(t *testing.T) {
 	}
 }
 
+func TestFilterByQuery(t *testing.T) {
+	in := []Result{
+		{Title: "The Matrix (1999) 1080p BluRay"},
+		{Title: "The.Boys.S05E08.1080p.WEB"}, // apibay no-match noise
+		{Title: "The Matrix Reloaded 2003"},
+	}
+	out := filterByQuery(in, "the matrix")
+	if len(out) != 2 {
+		t.Fatalf("query 'the matrix': kept %d, want 2", len(out))
+	}
+	for _, r := range out {
+		if r.Title == "The.Boys.S05E08.1080p.WEB" {
+			t.Error("irrelevant 'The Boys' result was not filtered out")
+		}
+	}
+
+	// CJK: a title with the term is kept, an unrelated one dropped.
+	cjk := []Result{
+		{Title: "[Dynamis] 海贼王 - 1135 [2160p]"},
+		{Title: "One Piece 1135 [1080p]"},
+	}
+	got := filterByQuery(cjk, "海贼王")
+	if len(got) != 1 || got[0].Title != "[Dynamis] 海贼王 - 1135 [2160p]" {
+		t.Errorf("query '海贼王': got %v, want only the 海贼王 title", got)
+	}
+
+	// Empty query filters nothing.
+	if len(filterByQuery(in, "")) != len(in) {
+		t.Error("empty query should keep all results")
+	}
+}
+
 func TestMergeSources(t *testing.T) {
 	cases := []struct{ a, b, want string }{
 		{"piratebay", "nyaa", "piratebay+nyaa"},
