@@ -23,7 +23,7 @@
 ## 安装与运行
 
 ```bash
-git clone <仓库地址>
+git clone https://github.com/452562082/p2pget.git
 cd p2pget
 go build -o p2pget ./cmd/p2pget
 ./p2pget
@@ -193,13 +193,3 @@ p2pget/
 
 - **DHT 爬虫**：首次启动需要等路由表建好，本机内网可能效果差，建议公网或 NAT-friendly 网络。
 - **法律声明**：本工具是协议实现，类似 qBittorrent / Transmission。下载内容的合法性由使用者自行负责。
-
-## 后续可做
-
-- Web UI（gin + WebSocket）
-- 下载完成 hook、RSS 自动订阅
-- `seed` 命令：把本地文件做成种子并做种，分享自己的资源
-
-> 想要更多种子源，推荐通过 `jackett` 源接入——Jackett 已维护好 Rutracker
-> 等数百个站点的登录与抓取。原生抓取这类站点（需登录、常变版、易被 Cloudflare 拦）
-> 维护成本高且与 Jackett 重复。
