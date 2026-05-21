@@ -66,8 +66,13 @@ func New(cfg Config) (*Engine, error) {
 	tcfg.DefaultStorage = storage.NewFile(cfg.DataDir)
 	tcfg.Seed = !cfg.NoUpload
 	tcfg.NoDHT = cfg.NoDHT
+	// Port 0 means ":0" — let the OS assign a free port. Otherwise the
+	// listen address is left unset and anacrolix falls back to a fixed
+	// default (42069), which collides when a second instance starts.
 	if cfg.ListenPort > 0 {
 		tcfg.SetListenAddr(fmt.Sprintf(":%d", cfg.ListenPort))
+	} else {
+		tcfg.SetListenAddr(":0")
 	}
 	if cfg.DownloadRate > 0 {
 		tcfg.DownloadRateLimiter = rate.NewLimiter(rate.Limit(cfg.DownloadRate), rateBurst(cfg.DownloadRate))
