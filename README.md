@@ -45,6 +45,10 @@ GOPROXY=https://proxy.golang.org,direct go mod tidy
 ./p2pget
 ```
 
+不带子命令直接运行即进入终端交互界面（搜索 / 下载 / 帮助三个标签页）。
+TUI 同样接受下文「通用选项」里的所有参数与环境变量，例如带上
+Jackett：`./p2pget -jackett-key <你的key>`。
+
 快捷键：
 - `Tab` / `Shift+Tab` 切换标签页
 - `/` 聚焦搜索框，`Esc` 离开输入
@@ -67,8 +71,10 @@ GOPROXY=https://proxy.golang.org,direct go mod tidy
 ### CLI 子命令
 
 ```bash
-# 聚合搜索
+# 聚合搜索（结果按做种数排序，分页显示）
 ./p2pget search "ubuntu 24.04"
+./p2pget search -n 50 "ubuntu 24.04"           # 每页 50 条
+./p2pget search -n 20 -page 2 "ubuntu 24.04"   # 第 2 页
 
 # 通过 magnet / hash / .torrent 文件 / .torrent URL 下载
 ./p2pget get "magnet:?xt=urn:btih:..."
@@ -80,7 +86,7 @@ GOPROXY=https://proxy.golang.org,direct go mod tidy
 ./p2pget dht-crawl
 ```
 
-通用选项：
+通用选项（CLI 子命令与 TUI 都适用）：
 
 | 参数 | 默认值 | 说明 |
 | - | - | - |
@@ -97,6 +103,14 @@ GOPROXY=https://proxy.golang.org,direct go mod tidy
 
 `-jackett-url` / `-jackett-key` 也可用环境变量
 `P2PGET_JACKETT_URL` / `P2PGET_JACKETT_KEY` 设置默认值。
+
+把环境变量写进 shell 配置（zsh 用 `~/.zshrc`，bash 用 `~/.bashrc`）即可永久生效，
+之后直接 `./p2pget` 就自动带上，不必每次输入：
+
+```bash
+echo 'export P2PGET_JACKETT_KEY=你的key' >> ~/.zshrc
+source ~/.zshrc
+```
 
 ## 搜索源
 

@@ -57,7 +57,7 @@ func usage() {
 用法:
   p2pget                    启动 TUI (默认)
   p2pget tui                同上
-  p2pget search <query>     命令行搜索
+  p2pget search <query>     命令行搜索 (-n 每页条数, -page 页码)
   p2pget get <magnet|hash|.torrent|URL>   命令行下载
   p2pget dht-crawl          只跑 DHT 爬虫（后台收集 info-hash 并解析元数据）
 
@@ -209,7 +209,8 @@ func runTUI(args []string) {
 func runSearch(args []string) {
 	fs := flag.NewFlagSet("search", flag.ExitOnError)
 	c := registerCommon(fs)
-	limit := fs.Int("n", 20, "最多显示多少条")
+	limit := fs.Int("n", 20, "每页条数")
+	page := fs.Int("page", 1, "页码 (从 1 开始)")
 	pos := parseArgs(fs, args)
 
 	if len(pos) == 0 {
@@ -231,18 +232,40 @@ func runSearch(args []string) {
 		fmt.Fprintf(os.Stderr, "[%s] %v\n", name, err)
 	}
 
+	per := *limit
+	if per < 1 {
+		per = 20
+	}
+	totalPages := (len(results) + per - 1) / per
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	pg := *page
+	if pg < 1 {
+		pg = 1
+	}
+	start := (pg - 1) * per
+	end := min(start+per, len(results))
+
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "S\tL\t SIZE\t SOURCE\t INFOHASH\t NAME")
-	for i, r := range results {
-		if i >= *limit {
-			break
-		}
+	for i := start; i < end; i++ {
+		r := results[i]
 		fmt.Fprintf(tw, "%d\t%d\t%s\t%s\t%s\t%s\n",
 			r.Seeders, r.Leechers, search.HumanSize(r.Size),
 			r.Source, r.InfoHash[:min(10, len(r.InfoHash))], r.Title)
 	}
 	tw.Flush()
-	fmt.Fprintf(os.Stderr, "\n共 %d 条结果\n", len(results))
+
+	if start >= len(results) && len(results) > 0 {
+		fmt.Fprintf(os.Stderr, "\n第 %d 页超出范围（共 %d 页）\n", pg, totalPages)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "\n共 %d 条结果 · 第 %d/%d 页", len(results), pg, totalPages)
+	if pg < totalPages {
+		fmt.Fprintf(os.Stderr, "（看下一页：-page %d）", pg+1)
+	}
+	fmt.Fprintln(os.Stderr)
 }
 
 // ---------------- get subcommand ----------------
