@@ -152,8 +152,8 @@ func TestMagnetFromInfoHashExtraTrackers(t *testing.T) {
 	const hash = "6A9759BFFD5C0AF65319979FB7832189F4F3C35D"
 	const extra = "http://nyaa.tracker.wf:7777/announce"
 	m := MagnetFromInfoHash(hash, "Name", extra)
-	if !strings.Contains(m, url.QueryEscape(extra)) {
-		t.Errorf("magnet missing extra tracker %q: %q", extra, m)
+	if n := strings.Count(m, url.QueryEscape(extra)); n != 1 {
+		t.Errorf("extra tracker %q appears %d times, want 1: %q", extra, n, m)
 	}
 }
 
