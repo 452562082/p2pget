@@ -93,7 +93,7 @@ func (n *Nyaa) Search(ctx context.Context, query string) ([]Result, error) {
 		out = append(out, Result{
 			Title:    it.Title,
 			InfoHash: hash,
-			Magnet:   MagnetFromInfoHash(hash, it.Title),
+			Magnet:   MagnetFromInfoHash(hash, it.Title, "http://nyaa.tracker.wf:7777/announce"),
 			Size:     parseHumanSize(it.Size),
 			Seeders:  seeders,
 			Leechers: leechers,

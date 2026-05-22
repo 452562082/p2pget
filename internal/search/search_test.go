@@ -1,6 +1,9 @@
 package search
 
 import (
+	"context"
+	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
@@ -163,5 +166,37 @@ func TestMagnetFromInfoHashDedups(t *testing.T) {
 	m := MagnetFromInfoHash(hash, "Name", dup)
 	if n := strings.Count(m, url.QueryEscape(dup)); n != 1 {
 		t.Errorf("tracker %q appears %d times, want 1: %q", dup, n, m)
+	}
+}
+
+// stubTransport serves a fixed body for any request, for offline source tests.
+type stubTransport struct{ body string }
+
+func (s stubTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: 200,
+		Body:       io.NopCloser(strings.NewReader(s.body)),
+		Header:     make(http.Header),
+	}, nil
+}
+
+func TestNyaaResultIncludesNyaaTracker(t *testing.T) {
+	const rss = `<?xml version="1.0"?><rss><channel><item>` +
+		`<title>Test Anime 01</title>` +
+		`<infoHash>0123456789abcdef0123456789abcdef01234567</infoHash>` +
+		`<seeders>5</seeders><leechers>1</leechers><size>500.0 MiB</size>` +
+		`</item></channel></rss>`
+	n := NewNyaa()
+	n.Client = &http.Client{Transport: stubTransport{body: rss}}
+
+	results, err := n.Search(context.Background(), "test")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+	if !strings.Contains(results[0].Magnet, "nyaa.tracker.wf") {
+		t.Errorf("nyaa magnet missing nyaa tracker: %q", results[0].Magnet)
 	}
 }
