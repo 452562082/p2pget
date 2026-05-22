@@ -35,4 +35,12 @@ func TestResolveBootstrapNodesFallsBackWhenDoHFails(t *testing.T) {
 		t.Fatalf("resolveBootstrapNodes with failing DoH returned %d addrs, want %d (the fallback set)",
 			len(addrs), len(bootstrapFallbackIPs))
 	}
+	for i, a := range addrs {
+		if a.IP() == nil {
+			t.Errorf("addr %d (%s) has nil IP", i, a.String())
+		}
+		if a.Port() == 0 {
+			t.Errorf("addr %d (%s) has zero port", i, a.String())
+		}
+	}
 }

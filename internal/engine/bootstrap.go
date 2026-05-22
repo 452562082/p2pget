@@ -5,6 +5,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -45,6 +46,7 @@ var dohEndpoints = []string{
 }
 
 var (
+	// bootstrapOnce caches the result process-wide; tests call resolveBootstrapNodes directly.
 	bootstrapOnce  sync.Once
 	bootstrapAddrs []dht.Addr
 )
@@ -133,7 +135,7 @@ func dohQuery(ctx context.Context, client *http.Client, ep, host string) []strin
 	q.Set("name", host)
 	q.Set("type", "A")
 	req.URL.RawQuery = q.Encode()
-	req.Header.Set("accept", "application/dns-json")
+	req.Header.Set("Accept", "application/dns-json")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -149,7 +151,7 @@ func dohQuery(ctx context.Context, client *http.Client, ep, host string) []strin
 			Data string `json:"data"`
 		} `json:"Answer"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body); err != nil {
 		return nil
 	}
 	var ips []string
