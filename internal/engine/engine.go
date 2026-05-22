@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anacrolix/dht/v2"
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/storage"
@@ -66,6 +67,11 @@ func New(cfg Config) (*Engine, error) {
 	tcfg.DefaultStorage = storage.NewFile(cfg.DataDir)
 	tcfg.Seed = !cfg.NoUpload
 	tcfg.NoDHT = cfg.NoDHT
+	// Bootstrap the DHT via DoH-resolved / hardcoded node addresses instead of
+	// the system DNS, which some networks hijack for BitTorrent domains.
+	tcfg.DhtStartingNodes = func(string) dht.StartingNodesGetter {
+		return func() ([]dht.Addr, error) { return bootstrapNodes(), nil }
+	}
 	// Port 0 means ":0" — let the OS assign a free port. Otherwise the
 	// listen address is left unset and anacrolix falls back to a fixed
 	// default (42069), which collides when a second instance starts.
