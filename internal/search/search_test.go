@@ -181,6 +181,8 @@ func (s stubTransport) RoundTrip(*http.Request) (*http.Response, error) {
 }
 
 func TestNyaaResultIncludesNyaaTracker(t *testing.T) {
+	// nyaa.si RSS uses a "nyaa:" namespace prefix on these fields; the decoder
+	// runs with Strict=false and matches on local name, so the bare tags work.
 	const rss = `<?xml version="1.0"?><rss><channel><item>` +
 		`<title>Test Anime 01</title>` +
 		`<infoHash>0123456789abcdef0123456789abcdef01234567</infoHash>` +
@@ -196,7 +198,8 @@ func TestNyaaResultIncludesNyaaTracker(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("got %d results, want 1", len(results))
 	}
-	if !strings.Contains(results[0].Magnet, "nyaa.tracker.wf") {
-		t.Errorf("nyaa magnet missing nyaa tracker: %q", results[0].Magnet)
+	tracker := "http://nyaa.tracker.wf:7777/announce"
+	if !strings.Contains(results[0].Magnet, url.QueryEscape(tracker)) {
+		t.Errorf("nyaa magnet missing nyaa tracker %q: %q", tracker, results[0].Magnet)
 	}
 }
