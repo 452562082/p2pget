@@ -194,22 +194,48 @@ func mergeSources(a, b string) string {
 	return a
 }
 
-// MagnetFromInfoHash builds a magnet URI with sane public trackers.
-func MagnetFromInfoHash(infoHash, name string) string {
-	trackers := []string{
-		"udp://tracker.opentrackr.org:1337/announce",
-		"udp://tracker.openbittorrent.com:6969/announce",
-		"udp://exodus.desync.com:6969/announce",
-		"udp://open.stealth.si:80/announce",
-		"udp://tracker.torrent.eu.org:451/announce",
-	}
+// defaultTrackers are public BitTorrent trackers attached to every magnet so
+// peer discovery still works when DHT is unavailable. Kept roughly in sync
+// with the widely-used community "best trackers" list.
+var defaultTrackers = []string{
+	"udp://tracker.opentrackr.org:1337/announce",
+	"udp://open.demonii.com:1337/announce",
+	"udp://open.stealth.si:80/announce",
+	"udp://tracker.torrent.eu.org:451/announce",
+	"udp://exodus.desync.com:6969/announce",
+	"udp://tracker.openbittorrent.com:6969/announce",
+	"udp://explodie.org:6969/announce",
+	"udp://opentracker.io:6969/announce",
+	"udp://tracker.dler.com:6969/announce",
+	"udp://tracker-udp.gbitt.info:80/announce",
+	"http://tracker.openbittorrent.com:80/announce",
+	"https://tracker.tamersunion.org:443/announce",
+}
+
+// MagnetFromInfoHash builds a magnet URI with public trackers. extraTrackers,
+// when given, are appended to the default set — used to keep a source's own
+// tracker (e.g. nyaa's) where the torrent's real peers actually announce.
+// Trackers are de-duplicated so an extra tracker already in the default set is
+// not added twice.
+func MagnetFromInfoHash(infoHash, name string, extraTrackers ...string) string {
 	v := url.Values{}
 	v.Set("xt", "urn:btih:"+strings.ToLower(infoHash))
 	if name != "" {
 		v.Set("dn", name)
 	}
-	for _, t := range trackers {
-		v.Add("tr", t)
+	seen := map[string]bool{}
+	addTracker := func(tr string) {
+		if tr == "" || seen[tr] {
+			return
+		}
+		seen[tr] = true
+		v.Add("tr", tr)
+	}
+	for _, tr := range defaultTrackers {
+		addTracker(tr)
+	}
+	for _, tr := range extraTrackers {
+		addTracker(tr)
 	}
 	return "magnet:?" + v.Encode()
 }

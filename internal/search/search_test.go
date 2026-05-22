@@ -1,6 +1,7 @@
 package search
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -144,5 +145,23 @@ func TestMagnetFromInfoHash(t *testing.T) {
 	}
 	if !strings.Contains(m, "tr=") {
 		t.Errorf("magnet missing trackers: %q", m)
+	}
+}
+
+func TestMagnetFromInfoHashExtraTrackers(t *testing.T) {
+	const hash = "6A9759BFFD5C0AF65319979FB7832189F4F3C35D"
+	const extra = "http://nyaa.tracker.wf:7777/announce"
+	m := MagnetFromInfoHash(hash, "Name", extra)
+	if !strings.Contains(m, url.QueryEscape(extra)) {
+		t.Errorf("magnet missing extra tracker %q: %q", extra, m)
+	}
+}
+
+func TestMagnetFromInfoHashDedups(t *testing.T) {
+	const hash = "6A9759BFFD5C0AF65319979FB7832189F4F3C35D"
+	dup := defaultTrackers[0]
+	m := MagnetFromInfoHash(hash, "Name", dup)
+	if n := strings.Count(m, url.QueryEscape(dup)); n != 1 {
+		t.Errorf("tracker %q appears %d times, want 1: %q", dup, n, m)
 	}
 }
