@@ -4,3 +4,6 @@
 # Test artifacts
 *.test
 *.out
+
+# Claude Code session settings (not project)
+.claude/
