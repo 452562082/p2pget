@@ -417,3 +417,33 @@ func (e *Engine) FetchInfo(ctx context.Context, hex string) (*metainfo.Info, err
 
 // Client exposes the underlying torrent client for advanced use (DHT crawler).
 func (e *Engine) Client() *torrent.Client { return e.client }
+
+// DHTStats describes one DHT server's routing-table state, decoupled from the
+// anacrolix concrete types so callers needn't import the DHT package.
+type DHTStats struct {
+	Addr       string
+	Nodes      int
+	Good       int
+	Bad        uint
+	OutQueries int64
+}
+
+// DHTStats returns a snapshot of each DHT server's routing table. The slice is
+// empty when DHT is disabled (NoDHT) or when no server type matches.
+func (e *Engine) DHTStats() []DHTStats {
+	var out []DHTStats
+	for _, s := range e.client.DhtServers() {
+		st, ok := s.Stats().(dht.ServerStats)
+		if !ok {
+			continue
+		}
+		out = append(out, DHTStats{
+			Addr:       s.Addr().String(),
+			Nodes:      st.Nodes,
+			Good:       st.GoodNodes,
+			Bad:        st.BadNodes,
+			OutQueries: st.OutboundQueriesAttempted,
+		})
+	}
+	return out
+}

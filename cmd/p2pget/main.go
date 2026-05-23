@@ -37,6 +37,8 @@ func main() {
 		runGet(os.Args[2:])
 	case "dht-crawl":
 		runDHTCrawl(os.Args[2:])
+	case "dht-status":
+		runDhtStatus(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -60,6 +62,7 @@ func usage() {
   p2pget search <query>     命令行搜索 (-n 每页条数, -page 页码)
   p2pget get <magnet|hash|.torrent|URL>   命令行下载
   p2pget dht-crawl          只跑 DHT 爬虫（后台收集 info-hash 并解析元数据）
+  p2pget dht-status         探测 DHT 健康（采样 45 秒，输出路由表节点数）
 
 通用选项:
   -data DIR       下载目录 (默认 ~/.p2pget/data)
@@ -338,6 +341,68 @@ func runGet(args []string) {
 			}
 		}
 	}
+}
+
+// ---------------- dht-status subcommand ----------------
+
+// runDhtStatus probes whether the DHT can actually build a routing table on
+// this network. It starts the engine with DHT enabled, samples the routing
+// table every 15 seconds for 45 seconds, prints per-server node counts, and
+// reports a one-line verdict (with non-zero exit code when the DHT cannot
+// reach any nodes — useful for "is DHT working here?" scripts).
+func runDhtStatus(args []string) {
+	fs := flag.NewFlagSet("dht-status", flag.ExitOnError)
+	c := registerCommon(fs)
+	_ = fs.Parse(args)
+
+	eng, err := openEngine(c, "")
+	if err != nil {
+		log.Fatalf("open engine: %v", err)
+	}
+	defer eng.Close()
+
+	fmt.Fprintln(os.Stderr, "启动 DHT（DoH 解析引导节点）…")
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	const interval = 15 * time.Second
+	const samples = 3
+	var maxNodes int
+	for i := 1; i <= samples; i++ {
+		select {
+		case <-ctx.Done():
+			fmt.Fprintln(os.Stderr, "中断")
+			return
+		case <-time.After(interval):
+		}
+		for _, st := range eng.DHTStats() {
+			if st.Nodes > maxNodes {
+				maxNodes = st.Nodes
+			}
+			fmt.Printf("[%3ds] %-22s  Nodes=%-4d Good=%-4d OutQueries=%d\n",
+				i*int(interval/time.Second), st.Addr, st.Nodes, st.Good, st.OutQueries)
+		}
+	}
+	fmt.Println()
+	msg, code := dhtVerdict(maxNodes)
+	fmt.Println(msg)
+	if code != 0 {
+		os.Exit(code)
+	}
+}
+
+// dhtVerdict turns the peak routing-table node count seen during sampling into
+// a human-readable verdict and a shell exit code. Pulled out as a pure
+// function so the verdict text is unit-testable without spinning up the DHT.
+func dhtVerdict(maxNodes int) (string, int) {
+	if maxNodes > 0 {
+		return fmt.Sprintf("✓ DHT 健康：路由表最多 %d 个节点（DHT 可用）", maxNodes), 0
+	}
+	return strings.Join([]string{
+		"✗ DHT 不通：45 秒内路由表为 0 节点。引导查询发出去无响应，",
+		"  推测 DHT 流量被网络丢弃（DPI / 防火墙）。详见 README「已知限制」。",
+	}, "\n"), 1
 }
 
 // ---------------- dht-crawl subcommand ----------------

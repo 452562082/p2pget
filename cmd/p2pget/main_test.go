@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -41,5 +42,25 @@ func TestEnvOr(t *testing.T) {
 	t.Setenv("P2PGET_TEST_VAR", "value")
 	if got := envOr("P2PGET_TEST_VAR", "fallback"); got != "value" {
 		t.Errorf("set var: got %q want value", got)
+	}
+}
+
+func TestDhtVerdictHealthy(t *testing.T) {
+	msg, code := dhtVerdict(234)
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0 for healthy DHT", code)
+	}
+	if !strings.Contains(msg, "234") {
+		t.Errorf("verdict msg = %q, want it to mention the node count 234", msg)
+	}
+}
+
+func TestDhtVerdictUnhealthy(t *testing.T) {
+	msg, code := dhtVerdict(0)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1 for 0-node DHT", code)
+	}
+	if !strings.Contains(msg, "DPI") {
+		t.Errorf("verdict msg = %q, want it to mention DPI as a likely cause", msg)
 	}
 }

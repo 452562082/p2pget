@@ -8,6 +8,20 @@ import (
 	"time"
 )
 
+// TestDHTStatsEmptyWhenDisabled checks DHTStats returns no entries when DHT
+// is disabled — guarding against accidentally exposing stale or nil-deref'd
+// server objects when NoDHT skips DHT setup entirely.
+func TestDHTStatsEmptyWhenDisabled(t *testing.T) {
+	eng, err := New(Config{DataDir: t.TempDir(), NoDHT: true, NoUpload: true})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer eng.Close()
+	if got := eng.DHTStats(); len(got) != 0 {
+		t.Errorf("DHTStats with NoDHT=true returned %d entries, want 0", len(got))
+	}
+}
+
 // TestWaitInfoReturnsOnMetadataTimeout ensures WaitInfo unblocks when a
 // download is dropped after its metadata fetch times out. GotInfo() never
 // fires once the torrent is dropped, so a WaitInfo that only watches GotInfo()

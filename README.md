@@ -84,6 +84,9 @@ Jackett：`./p2pget -jackett-key <你的key>`。
 
 # DHT 爬虫（前台运行，Ctrl+C 退出）
 ./p2pget dht-crawl
+
+# 探测 DHT 健康（采样 45 秒，输出路由表节点数；适合排查「下载卡在元数据中」是不是 DHT 问题）
+./p2pget dht-status
 ```
 
 通用选项（CLI 子命令与 TUI 都适用）：
