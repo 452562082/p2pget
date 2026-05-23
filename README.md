@@ -192,6 +192,10 @@ p2pget/
 ## 已知限制
 
 - **DHT 爬虫**：首次启动需要等路由表建好，本机内网可能效果差，建议公网或 NAT-friendly 网络。
+- **网络环境（部分地区）**：在对 BT 流量做主动干预的网络下，DHT 可能完全用不了。常见两种叠加干预：
+  - **DNS 劫持**：明文 DNS（53 端口）被在链路上拦截，把 DHT 引导域名（`router.bittorrent.com` 等）解析成假 IP。p2pget 已用 **DoH 加密解析 + 硬编码引导 IP 兜底**绕过这一层，本机/路由器 DNS 怎么设都不受影响。
+  - **DPI 丢包**：运营商对 DHT 的 KRPC/UDP 流量做深度包检测并丢弃。这层代码改不了 —— DHT 引导包发出去 0 响应。要让 DHT 真正可用必须挂全局代理 / VPN，并且**代理协议必须支持 UDP 转发**（WireGuard / OpenVPN / Hysteria / TUIC / Shadowsocks-UDP / VLESS-reality 等支持，Trojan / VMess-WS 等仅 TCP 协议下 DHT 仍走不通）。简单确认方法：`dig @8.8.8.8 router.bittorrent.com` 应得到 `67.215.246.10` 这类真实 IP，而非 `28.0.0.x` 之类伪造值。
+  - DHT 不可用时仍可下载 tracker 有覆盖的种子（搜索结果挑做种数 `S` 较高、来源 `piratebay` 的成功率最高）。
 - **法律声明**：本工具是协议实现，类似 qBittorrent / Transmission。下载内容的合法性由使用者自行负责。
 
 ## 许可证
