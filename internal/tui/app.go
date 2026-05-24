@@ -193,9 +193,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "tab":
 			m.active = (m.active + 1) % 3
+			m.syncInputFocus()
 			return m, nil
 		case "shift+tab":
 			m.active = (m.active + 2) % 3
+			m.syncInputFocus()
 			return m, nil
 		case "q":
 			if !m.input.Focused() {
@@ -379,6 +381,16 @@ func (m *Model) addDownload(r search.Result, paused bool) tea.Cmd {
 			name = d.InfoHash()
 		}
 		return downloadAddedMsg{name: name, paused: paused}
+	}
+}
+
+// syncInputFocus drops focus from the search box when the user is no longer
+// on the search tab. Tab-switching previously left the input focused even on
+// the downloads tab, which silently swallowed shortcut keys like 'd' / 'p'
+// because their guards bail out whenever the input claims focus.
+func (m *Model) syncInputFocus() {
+	if m.active != tabSearch && m.input.Focused() {
+		m.input.Blur()
 	}
 }
 

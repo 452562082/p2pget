@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/anacrolix/dht/v2"
+	g "github.com/anacrolix/generics"
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/storage"
@@ -64,7 +65,7 @@ func New(cfg Config) (*Engine, error) {
 
 	tcfg := torrent.NewDefaultClientConfig()
 	tcfg.DataDir = cfg.DataDir
-	tcfg.DefaultStorage = storage.NewFile(cfg.DataDir)
+	tcfg.DefaultStorage = newStorage(cfg.DataDir)
 	tcfg.Seed = !cfg.NoUpload
 	tcfg.NoDHT = cfg.NoDHT
 	// Bootstrap the DHT via DoH-resolved / hardcoded node addresses instead of
@@ -114,6 +115,20 @@ func New(cfg Config) (*Engine, error) {
 		e.restore()
 	}
 	return e, nil
+}
+
+// newStorage builds the file-backed storage shared by every torrent in this
+// engine. anacrolix's default (storage.NewFile) writes incomplete files with a
+// .part suffix and, on every OpenTorrent, calls setCompletionFromPartFiles
+// which OVERWRITES the persistent piece-completion DB to mark every piece in
+// any .part file as incomplete — torching resume state for any in-progress
+// download. Disabling part files keeps the persistent sqlite DB authoritative
+// across restarts, which is what users actually expect.
+func newStorage(dataDir string) storage.ClientImplCloser {
+	return storage.NewFileOpts(storage.NewFileClientOpts{
+		ClientBaseDir: dataDir,
+		UsePartFiles:  g.Some(false),
+	})
 }
 
 // rateBurst picks a token-bucket burst for a byte/sec rate. anacrolix requires

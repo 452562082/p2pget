@@ -2,10 +2,15 @@ package engine
 
 import (
 	"context"
+	"crypto/sha1"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/anacrolix/torrent/metainfo"
 )
 
 // TestDHTStatsEmptyWhenDisabled checks DHTStats returns no entries when DHT
@@ -63,5 +68,101 @@ func TestWaitInfoReturnsOnMetadataTimeout(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "timed out") {
 		t.Errorf("WaitInfo error = %q, want it to mention the metadata timeout", err)
+	}
+}
+
+// TestStoragePieceCompletionSurvivesReopen pins the resume contract: a piece
+// marked complete in the persistent DB MUST still read as complete after the
+// storage is closed and reopened against the same data dir. anacrolix's
+// default (.part files + setCompletionFromPartFiles) silently resets the DB
+// on every open for any incomplete file, so without disabling part files the
+// engine re-downloads every torrent from scratch on restart.
+func TestStoragePieceCompletionSurvivesReopen(t *testing.T) {
+	dir := t.TempDir()
+
+	const pieceLen = int64(16 * 1024)
+	// Pre-place the file at its final on-disk path. anacrolix's Completion()
+	// readback stat()s the file and reports incomplete if it's missing or
+	// short, so MarkComplete alone is not enough — the data file has to exist
+	// at the right size for completion to register.
+	const fileName = "resume_test.bin"
+	if err := os.WriteFile(filepath.Join(dir, fileName), make([]byte, pieceLen), 0o644); err != nil {
+		t.Fatalf("seed data file: %v", err)
+	}
+	// The actual piece hash doesn't need to match for MarkComplete to stick —
+	// it stamps the DB directly without hashing.
+	pieceHash := sha1.Sum(make([]byte, pieceLen))
+	info := metainfo.Info{
+		Name:        fileName,
+		PieceLength: pieceLen,
+		Pieces:      pieceHash[:],
+		Length:      pieceLen,
+	}
+	ih := metainfo.HashBytes([]byte("p2pget-resume-test"))
+	ctx := context.Background()
+
+	cs := newStorage(dir)
+	ts, err := cs.OpenTorrent(ctx, &info, ih)
+	if err != nil {
+		t.Fatalf("OpenTorrent session 1: %v", err)
+	}
+	pc := ts.Piece(info.Piece(0))
+	if err := pc.MarkComplete(); err != nil {
+		t.Fatalf("MarkComplete: %v", err)
+	}
+	if c := pc.Completion(); !c.Complete {
+		t.Fatalf("session 1 readback: Complete=%v Ok=%v, want Complete=true", c.Complete, c.Ok)
+	}
+	if err := cs.Close(); err != nil {
+		t.Fatalf("Close session 1: %v", err)
+	}
+
+	cs2 := newStorage(dir)
+	t.Cleanup(func() { _ = cs2.Close() })
+	ts2, err := cs2.OpenTorrent(ctx, &info, ih)
+	if err != nil {
+		t.Fatalf("OpenTorrent session 2: %v", err)
+	}
+	pc2 := ts2.Piece(info.Piece(0))
+	if c := pc2.Completion(); !c.Complete {
+		t.Fatalf("piece 0 completion lost across reopen (Complete=%v Ok=%v) — resume is broken", c.Complete, c.Ok)
+	}
+}
+
+// TestStorageWritesWithoutPartSuffix locks in the configuration that fixes
+// resume. anacrolix's default storage names incomplete files <name>.part and
+// rebuilds piece completion at every OpenTorrent based on whether the
+// non-.part file exists at the expected size — which destroys all resume
+// state for in-progress downloads. We disable part files so writes land at
+// the final path and the persistent piece-completion DB is trusted across
+// restarts.
+func TestStorageWritesWithoutPartSuffix(t *testing.T) {
+	dir := t.TempDir()
+
+	const pieceLen = int64(16 * 1024)
+	const fileName = "no_part_suffix.bin"
+	info := metainfo.Info{
+		Name:        fileName,
+		PieceLength: pieceLen,
+		Pieces:      make([]byte, 20),
+		Length:      pieceLen,
+	}
+	ih := metainfo.HashBytes([]byte("p2pget-nopart-test"))
+
+	cs := newStorage(dir)
+	t.Cleanup(func() { _ = cs.Close() })
+	ts, err := cs.OpenTorrent(context.Background(), &info, ih)
+	if err != nil {
+		t.Fatalf("OpenTorrent: %v", err)
+	}
+	if _, err := ts.Piece(info.Piece(0)).WriteAt([]byte("hello"), 0); err != nil {
+		t.Fatalf("WriteAt: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, fileName)); err != nil {
+		t.Errorf("expected data written to %q, but stat failed: %v", fileName, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, fileName+".part")); err == nil {
+		t.Errorf("found %q.part on disk — storage is still using part files, which breaks resume", fileName)
 	}
 }

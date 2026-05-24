@@ -85,3 +85,41 @@ func TestModelTabSwitch(t *testing.T) {
 		t.Errorf("after Shift+Tab from first tab: active=%d, want wrap to tabHelp", m.active)
 	}
 }
+
+// TestPressDOnDownloadsTabRemovesTask covers the bug where the 'd' shortcut
+// silently did nothing if the user Tab-switched to the downloads tab without
+// first blurring the search input. The shortcut's guard required
+// !m.input.Focused(), but the input retains focus across tab switches even
+// though it isn't displayed on the downloads tab — so 'd' became a no-op for
+// any user who hadn't run a search this session.
+func TestPressDOnDownloadsTabRemovesTask(t *testing.T) {
+	eng, err := engine.New(engine.Config{DataDir: t.TempDir(), NoDHT: true})
+	if err != nil {
+		t.Skipf("engine unavailable in this environment: %v", err)
+	}
+	defer eng.Close()
+
+	if _, err := eng.AddInfoHash("0123456789abcdef0123456789abcdef01234567"); err != nil {
+		t.Fatalf("AddInfoHash: %v", err)
+	}
+	if got := len(eng.List()); got != 1 {
+		t.Fatalf("setup: expected 1 download, got %d", got)
+	}
+
+	m := New(eng, search.New())
+	m.refreshDownloads()
+
+	// Tab from search → downloads. Critically, the search input remains
+	// focused (default state on a freshly opened app) — this is the path
+	// that previously made 'd' a no-op.
+	m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if m.active != tabDownloads {
+		t.Fatalf("after Tab: active=%d, want tabDownloads", m.active)
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+
+	if got := len(eng.List()); got != 0 {
+		t.Fatalf("after 'd' on downloads tab: expected 0 downloads, got %d (remove did not fire)", got)
+	}
+}
