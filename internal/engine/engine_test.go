@@ -166,3 +166,62 @@ func TestStorageWritesWithoutPartSuffix(t *testing.T) {
 		t.Errorf("found %q.part on disk — storage is still using part files, which breaks resume", fileName)
 	}
 }
+
+// TestMigratePartFiles rescues data left behind by older binaries that used
+// anacrolix's default .part-file naming. The current storage writes directly
+// to the final path, so .part files would otherwise sit on disk as orphans
+// that the engine can neither resume from nor write into.
+func TestMigratePartFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	must := func(path string, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// (1) Plain leftover .part at top level — should be renamed.
+	must(filepath.Join(dir, "movie.mp4.part"), "video")
+	// (2) Nested .part inside a torrent subdir — should also be renamed.
+	must(filepath.Join(dir, "anime", "ep01.mkv.part"), "anime-ep1")
+	// (3) Target already exists — .part must be left alone (don't clobber).
+	must(filepath.Join(dir, "song.mp3"), "good-copy")
+	must(filepath.Join(dir, "song.mp3.part"), "stale-partial")
+	// (4) A file that just happens to end in .part-like text but isn't a
+	// .part file — must stay untouched.
+	must(filepath.Join(dir, "notes.txt"), "notes")
+
+	migratePartFiles(dir)
+
+	type check struct {
+		path        string
+		wantExists  bool
+		wantContent string
+	}
+	for _, c := range []check{
+		{filepath.Join(dir, "movie.mp4"), true, "video"},
+		{filepath.Join(dir, "movie.mp4.part"), false, ""},
+		{filepath.Join(dir, "anime", "ep01.mkv"), true, "anime-ep1"},
+		{filepath.Join(dir, "anime", "ep01.mkv.part"), false, ""},
+		{filepath.Join(dir, "song.mp3"), true, "good-copy"},
+		{filepath.Join(dir, "song.mp3.part"), true, "stale-partial"},
+		{filepath.Join(dir, "notes.txt"), true, "notes"},
+	} {
+		data, err := os.ReadFile(c.path)
+		if c.wantExists {
+			if err != nil {
+				t.Errorf("%s: want present, stat err=%v", c.path, err)
+				continue
+			}
+			if string(data) != c.wantContent {
+				t.Errorf("%s: content=%q, want %q", c.path, data, c.wantContent)
+			}
+		} else if err == nil {
+			t.Errorf("%s: want gone, but still present", c.path)
+		}
+	}
+}

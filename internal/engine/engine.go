@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -62,6 +63,10 @@ func New(cfg Config) (*Engine, error) {
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir data dir: %w", err)
 	}
+	// Rescue any "<name>.part" files left behind by older binaries that ran
+	// with anacrolix's default part-file naming. Without this they'd sit on
+	// disk as orphans next to whatever the no-part-file storage writes today.
+	migratePartFiles(cfg.DataDir)
 
 	tcfg := torrent.NewDefaultClientConfig()
 	tcfg.DataDir = cfg.DataDir
@@ -128,6 +133,32 @@ func newStorage(dataDir string) storage.ClientImplCloser {
 	return storage.NewFileOpts(storage.NewFileClientOpts{
 		ClientBaseDir: dataDir,
 		UsePartFiles:  g.Some(false),
+	})
+}
+
+// migratePartFiles strips the ".part" suffix from any leftover incomplete
+// files in dataDir. Older binaries (and anacrolix by default) named partially
+// downloaded files "<name>.part" and renamed them on completion; we now write
+// directly to the final path, so any pre-existing .part files would otherwise
+// be invisible to anacrolix. Files whose un-suffixed target already exists are
+// left alone — those are either complete (don't overwrite the good copy) or
+// from an inconsistent half-rename we shouldn't second-guess.
+func migratePartFiles(dataDir string) {
+	_ = filepath.WalkDir(dataDir, func(path string, de fs.DirEntry, err error) error {
+		if err != nil || de.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(path, ".part") {
+			return nil
+		}
+		target := strings.TrimSuffix(path, ".part")
+		if _, err := os.Stat(target); err == nil {
+			return nil // don't clobber an existing file
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return nil // unexpected error; leave the .part alone
+		}
+		_ = os.Rename(path, target)
+		return nil
 	})
 }
 
@@ -252,6 +283,7 @@ func (e *Engine) awaitMetadata(d *Download) {
 	if e.metadataTimeout < 0 {
 		select {
 		case <-t.GotInfo():
+			e.recoverExistingData(t)
 			d.initSelection()
 		case <-t.Closed():
 		}
@@ -261,6 +293,7 @@ func (e *Engine) awaitMetadata(d *Download) {
 	defer timer.Stop()
 	select {
 	case <-t.GotInfo():
+		e.recoverExistingData(t)
 		d.initSelection()
 	case <-t.Closed():
 		// removed before metadata arrived; nothing to do
@@ -271,6 +304,35 @@ func (e *Engine) awaitMetadata(d *Download) {
 		// until the user removes it explicitly.
 		t.Drop()
 	}
+}
+
+// recoverExistingData hash-checks any pre-existing on-disk content for the
+// torrent so partial files left behind by older binaries (or by an interrupted
+// session before the persistent piece-completion DB has been seeded) are
+// credited instead of silently re-downloaded. It runs synchronously before
+// initSelection so the verify happens before any download priority is set —
+// otherwise anacrolix could overwrite valid bytes mid-hash. It is a no-op
+// when the DB already knows about completed pieces or no data files exist.
+func (e *Engine) recoverExistingData(t *torrent.Torrent) {
+	if t.BytesCompleted() > 0 {
+		return // DB already has truth for this torrent
+	}
+	info := t.Info()
+	if info == nil {
+		return
+	}
+	base := filepath.Join(e.dataDir, info.BestName())
+	fi, err := os.Stat(base)
+	if err != nil {
+		return // no leftover data
+	}
+	// For single-file torrents BestName() IS the file. For multi-file
+	// torrents it's the parent dir — either way, presence means there is
+	// something to verify.
+	if !fi.IsDir() && fi.Size() == 0 {
+		return
+	}
+	_ = t.VerifyDataContext(context.Background())
 }
 
 // List returns a snapshot of all known downloads, ordered by when they were
