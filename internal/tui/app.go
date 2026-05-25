@@ -309,6 +309,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case refreshMsg:
 		m.engine.SampleRates()
+		m.pruneCompleted()
 		m.refreshDownloads()
 		m.recomputeTotals()
 		if m.fileView != nil {
@@ -408,6 +409,42 @@ func (m *Model) refreshDownloads() {
 		items = append(items, downloadItem{d: d})
 	}
 	m.dls.SetItems(items)
+}
+
+// isCompleted reports whether a download has fetched every wanted byte. Status
+// counts only wanted files in TotalBytes/BytesDone, so this also returns true
+// when the user deselected files mid-download and the remaining ones finished.
+func isCompleted(s engine.Status) bool {
+	return s.HaveInfo && s.TotalBytes > 0 && s.BytesDone >= s.TotalBytes
+}
+
+// pruneCompleted drops finished downloads from the engine (keeping their files
+// on disk) so the list reflects "active work" rather than accumulating done
+// tasks. Runs on every refresh tick; the file-select modal pins a Download
+// pointer, so we leave whichever one it's showing in place to avoid handing
+// the modal a dropped torrent.
+func (m *Model) pruneCompleted() {
+	var done []string
+	for _, d := range m.engine.List() {
+		if m.fileView != nil && m.fileView.d == d {
+			continue
+		}
+		s := d.Status()
+		if !isCompleted(s) {
+			continue
+		}
+		if err := m.engine.Remove(s.InfoHash, false); err == nil {
+			done = append(done, s.Name)
+		}
+	}
+	switch len(done) {
+	case 0:
+		return
+	case 1:
+		m.status = fmt.Sprintf("✓ %s 下载完成，已移出列表（文件保留在 %s）", done[0], m.engine.DataDir())
+	default:
+		m.status = fmt.Sprintf("✓ %d 个任务下载完成，已移出列表（文件保留在 %s）", len(done), m.engine.DataDir())
+	}
 }
 
 func (m *Model) recomputeTotals() {
@@ -541,6 +578,8 @@ func helpText() string {
 		"  - dht-index     本地 SQLite，存爬虫收集结果",
 		"",
 		"下载文件保存目录: ~/.p2pget/data/",
+		"",
+		"任务完成后会自动从列表移除（磁盘文件保留），客户端也会停止做种。",
 	}, "\n")
 }
 

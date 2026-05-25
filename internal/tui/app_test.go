@@ -86,6 +86,46 @@ func TestModelTabSwitch(t *testing.T) {
 	}
 }
 
+func TestIsCompleted(t *testing.T) {
+	cases := []struct {
+		name string
+		s    engine.Status
+		want bool
+	}{
+		{"no metadata", engine.Status{}, false},
+		{"metadata but zero total", engine.Status{HaveInfo: true}, false},
+		{"in progress", engine.Status{HaveInfo: true, TotalBytes: 100, BytesDone: 50}, false},
+		{"exact complete", engine.Status{HaveInfo: true, TotalBytes: 100, BytesDone: 100}, true},
+		{"over-complete still complete", engine.Status{HaveInfo: true, TotalBytes: 100, BytesDone: 120}, true},
+	}
+	for _, c := range cases {
+		if got := isCompleted(c.s); got != c.want {
+			t.Errorf("%s: isCompleted=%v want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// TestPruneCompletedKeepsActive guards against an over-eager prune that would
+// drop tasks before metadata arrives or while bytes are still flowing — the
+// auto-remove must only fire when the download is genuinely done.
+func TestPruneCompletedKeepsActive(t *testing.T) {
+	eng, err := engine.New(engine.Config{DataDir: t.TempDir(), NoDHT: true})
+	if err != nil {
+		t.Skipf("engine unavailable in this environment: %v", err)
+	}
+	defer eng.Close()
+
+	if _, err := eng.AddInfoHash("0123456789abcdef0123456789abcdef01234567"); err != nil {
+		t.Fatalf("AddInfoHash: %v", err)
+	}
+
+	m := New(eng, search.New())
+	m.pruneCompleted()
+	if got := len(eng.List()); got != 1 {
+		t.Fatalf("pruneCompleted dropped an active download: got %d, want 1", got)
+	}
+}
+
 // TestPressDOnDownloadsTabRemovesTask covers the bug where the 'd' shortcut
 // silently did nothing if the user Tab-switched to the downloads tab without
 // first blurring the search input. The shortcut's guard required
