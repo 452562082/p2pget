@@ -379,6 +379,69 @@ func (e *Engine) Remove(hash string, deleteData bool) error {
 	return nil
 }
 
+// Restart drops a download and re-adds it from the same source, preserving the
+// user's current file selection. When metadata is already available we re-add
+// via AddTorrent(metainfo) so anacrolix skips the BEP9 metadata fetch —
+// critical because re-fetching can take minutes on a network where DHT is
+// flaky. Used by the TUI's stall watchdog to recover from wake-from-sleep
+// wedges where every peer TCP connection has silently gone dead.
+func (e *Engine) Restart(hashHex string) error {
+	var h metainfo.Hash
+	if err := h.FromHexString(hashHex); err != nil {
+		return err
+	}
+	e.mu.Lock()
+	old, ok := e.downloads[h]
+	if ok {
+		delete(e.downloads, h)
+	}
+	e.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("no such download: %s", hashHex)
+	}
+
+	// Snapshot what we need to re-create the task. Take metainfo first so a
+	// concurrent Drop can't blank it out from under us.
+	magnet := old.magnet
+	var mi *metainfo.MetaInfo
+	if old.t.Info() != nil {
+		m := old.t.Metainfo()
+		mi = &m
+	}
+	var skip []int
+	for _, f := range old.Files() {
+		if !f.Wanted {
+			skip = append(skip, f.Index)
+		}
+	}
+	// Pre-metadata restart: there's no Files() yet, so fall back to whatever
+	// skip list was persisted/passed in at the original add.
+	if mi == nil && len(skip) == 0 {
+		skip = old.skip
+	}
+
+	old.t.Drop()
+
+	var (
+		t   *torrent.Torrent
+		err error
+	)
+	switch {
+	case mi != nil:
+		t, err = e.client.AddTorrent(mi)
+	case magnet != "":
+		t, err = e.client.AddMagnet(magnet)
+	default:
+		t, _ = e.client.AddTorrentInfoHash(h)
+	}
+	if err != nil {
+		return fmt.Errorf("re-add after restart: %w", err)
+	}
+	e.track(t, magnet, skip)
+	e.persistState()
+	return nil
+}
+
 type taskRecord struct {
 	InfoHash string `json:"info_hash"`
 	Magnet   string `json:"magnet,omitempty"`

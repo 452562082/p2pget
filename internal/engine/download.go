@@ -32,6 +32,12 @@ type Download struct {
 	lastUp       int64
 	downRate     float64 // bytes/sec, refreshed by SampleRate
 	upRate       float64
+	// stallSince records the first SampleRate at which downRate fell to 0
+	// AND ActivePeers was 0, i.e. the torrent looks completely disconnected.
+	// Cleared whenever either condition flips back. The TUI watchdog uses
+	// this to detect post-sleep wedges where every TCP connection went
+	// stale and a fresh announce/handshake is the only way out.
+	stallSince time.Time
 }
 
 // initSelection builds the file selection once metadata is available, seeding
@@ -95,13 +101,37 @@ func (d *Download) SampleRate() {
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	haveRate := false
 	if elapsed := now.Sub(d.lastSampleAt).Seconds(); !d.lastSampleAt.IsZero() && elapsed > 0 {
 		d.downRate = float64(down-d.lastDown) / elapsed
 		d.upRate = float64(up-d.lastUp) / elapsed
+		haveRate = true
 	}
 	d.lastSampleAt = now
 	d.lastDown = down
 	d.lastUp = up
+	// Only track stalls once we actually have a rate sample, otherwise the
+	// first call would falsely mark every fresh download as stalled.
+	if haveRate {
+		if d.downRate < 1 && stats.ActivePeers == 0 {
+			if d.stallSince.IsZero() {
+				d.stallSince = now
+			}
+		} else {
+			d.stallSince = time.Time{}
+		}
+	}
+}
+
+// StallDuration reports how long the download has looked completely
+// disconnected (0 B/s and 0 peers), or 0 if it isn't currently stalled.
+func (d *Download) StallDuration() time.Duration {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if d.stallSince.IsZero() {
+		return 0
+	}
+	return time.Since(d.stallSince)
 }
 
 func (d *Download) setErr(err error) {

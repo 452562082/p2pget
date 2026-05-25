@@ -126,6 +126,36 @@ func TestPruneCompletedKeepsActive(t *testing.T) {
 	}
 }
 
+// TestRestartStalledIgnoresPreMetadata guards the watchdog against firing
+// before metadata arrives — that case is owned by awaitMetadata's timeout and
+// auto-restarting there would spin forever for any genuinely dead info-hash.
+func TestRestartStalledIgnoresPreMetadata(t *testing.T) {
+	eng, err := engine.New(engine.Config{
+		DataDir:         t.TempDir(),
+		NoDHT:           true,
+		NoUpload:        true,
+		MetadataTimeout: -1,
+	})
+	if err != nil {
+		t.Skipf("engine unavailable in this environment: %v", err)
+	}
+	defer eng.Close()
+
+	const hash = "0123456789abcdef0123456789abcdef01234567"
+	d1, err := eng.AddInfoHash(hash)
+	if err != nil {
+		t.Fatalf("AddInfoHash: %v", err)
+	}
+
+	m := New(eng, search.New())
+	m.restartStalled()
+
+	list := eng.List()
+	if len(list) != 1 || list[0] != d1 {
+		t.Fatalf("restartStalled touched a pre-metadata download (was %p, list=%v)", d1, list)
+	}
+}
+
 // TestPressDOnDownloadsTabRemovesTask covers the bug where the 'd' shortcut
 // silently did nothing if the user Tab-switched to the downloads tab without
 // first blurring the search input. The shortcut's guard required

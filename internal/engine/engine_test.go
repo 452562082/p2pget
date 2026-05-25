@@ -71,6 +71,59 @@ func TestWaitInfoReturnsOnMetadataTimeout(t *testing.T) {
 	}
 }
 
+// TestEngineRestartReplacesDownload verifies the stall-recovery primitive:
+// Restart drops the old Download, creates a fresh one under the same info-hash,
+// and leaves List length unchanged. Pre-metadata case (DHT disabled, no peers
+// to fetch from) — exercises the AddTorrentInfoHash fallback path.
+func TestEngineRestartReplacesDownload(t *testing.T) {
+	eng, err := New(Config{
+		DataDir:         t.TempDir(),
+		NoDHT:           true,
+		NoUpload:        true,
+		MetadataTimeout: -1, // disable so awaitMetadata doesn't race us
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer eng.Close()
+
+	const hash = "0123456789abcdef0123456789abcdef01234567"
+	d1, err := eng.AddInfoHash(hash)
+	if err != nil {
+		t.Fatalf("AddInfoHash: %v", err)
+	}
+
+	if err := eng.Restart(hash); err != nil {
+		t.Fatalf("Restart: %v", err)
+	}
+
+	list := eng.List()
+	if len(list) != 1 {
+		t.Fatalf("after Restart: want 1 download, got %d", len(list))
+	}
+	if list[0] == d1 {
+		t.Errorf("Restart did not swap the Download pointer (got same %p)", d1)
+	}
+	if list[0].InfoHash() != hash {
+		t.Errorf("Restart lost the info-hash: got %q want %q", list[0].InfoHash(), hash)
+	}
+}
+
+// TestEngineRestartUnknownHash makes sure Restart on a hash we don't track
+// returns an error instead of silently no-op'ing (which would mask bugs in the
+// watchdog).
+func TestEngineRestartUnknownHash(t *testing.T) {
+	eng, err := New(Config{DataDir: t.TempDir(), NoDHT: true, NoUpload: true})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer eng.Close()
+
+	if err := eng.Restart("0123456789abcdef0123456789abcdef01234567"); err == nil {
+		t.Error("Restart on unknown hash returned nil, want error")
+	}
+}
+
 // TestStoragePieceCompletionSurvivesReopen pins the resume contract: a piece
 // marked complete in the persistent DB MUST still read as complete after the
 // storage is closed and reopened against the same data dir. anacrolix's

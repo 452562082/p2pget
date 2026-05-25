@@ -310,6 +310,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case refreshMsg:
 		m.engine.SampleRates()
 		m.pruneCompleted()
+		m.restartStalled()
 		m.refreshDownloads()
 		m.recomputeTotals()
 		if m.fileView != nil {
@@ -447,6 +448,43 @@ func (m *Model) pruneCompleted() {
 	}
 }
 
+// stallRestartThreshold is how long a download must look completely
+// disconnected (0 B/s and 0 active peers) before the watchdog drops and
+// re-adds it. Tuned for the wake-from-sleep case: long enough that a slow
+// network or a brief peer-pool churn won't trigger a needless restart, short
+// enough that the user doesn't have to wait forever after the laptop wakes.
+const stallRestartThreshold = 3 * time.Minute
+
+// restartStalled looks for downloads that have been completely disconnected
+// for longer than stallRestartThreshold and has the engine re-create them.
+// Targets the common wake-from-sleep scenario where every TCP connection went
+// silently stale and anacrolix's own retry cadence takes minutes to notice.
+func (m *Model) restartStalled() {
+	for _, d := range m.engine.List() {
+		if m.fileView != nil && m.fileView.d == d {
+			continue
+		}
+		s := d.Status()
+		// Skip pre-metadata (different failure mode, owned by awaitMetadata's
+		// timeout), paused (user's choice), and completed (pruneCompleted
+		// will handle it). Active peers or any traffic means alive enough.
+		if !s.HaveInfo || s.Paused || isCompleted(s) {
+			continue
+		}
+		if s.ActivePeers > 0 || s.DownRate >= 1 {
+			continue
+		}
+		if d.StallDuration() < stallRestartThreshold {
+			continue
+		}
+		name := s.Name
+		if err := m.engine.Restart(s.InfoHash); err == nil {
+			m.status = fmt.Sprintf("⟳ %s 连接已僵死 %v，重启任务以重连 peers",
+				name, stallRestartThreshold)
+		}
+	}
+}
+
 func (m *Model) recomputeTotals() {
 	var down, up float64
 	for _, d := range m.dlList {
@@ -580,6 +618,7 @@ func helpText() string {
 		"下载文件保存目录: ~/.p2pget/data/",
 		"",
 		"任务完成后会自动从列表移除（磁盘文件保留），客户端也会停止做种。",
+		"持续 3 分钟无 peer 也无流量（如笔记本睡眠唤醒后连接全部僵死）会自动重启该任务以重新连接 peers。",
 	}, "\n")
 }
 
